@@ -1,86 +1,255 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { exec, execSync } from 'child_process';
+import { existsSync } from 'fs';
+import {
+	App,
+	FuzzySuggestModal,
+	normalizePath,
+	Notice,
+	Plugin,
+	PluginSettingTab,
+	Setting,
+	TFile,
+	Vault,
+	Workspace
+} from 'obsidian';
+import * as path from 'path';
 
-// Remember to rename these classes and interfaces!
+type ArchWikiSettings = {
+	pageDirectory: string;
+};
 
-interface MyPluginSettings {
-	mySetting: string;
+const READ_PAGE_COMMAND = 'read-page';
+const UPDATE_CATEGORY_COMMAND = 'update-category';
+
+const DEFAULT_SETTINGS: ArchWikiSettings = {
+	pageDirectory: 'ArchWiki'
+};
+
+async function createIfNotExistsAndOpenInTab(
+	filename: string,
+	dir: string,
+	content: string,
+	vault: Vault,
+	workspace: Workspace
+) {
+	const filePath = normalizePath(path.join(dir, `${filename}.md`));
+
+	let file: TFile;
+	if (await vault.adapter.exists(filePath)) {
+		file = vault.getAbstractFileByPath(filePath) as TFile;
+	} else {
+		file = await vault.create(filePath, content);
+	}
+
+	const leaf = workspace.getLeaf('tab');
+	await leaf.openFile(file);
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
+function updateCategory(category: string) {
+	exec(`archwiki-rs update-category ${category}`, { encoding: 'utf8' }, (err) => {
+		if (err) {
+			const notice = new Notice(`Failed to update category ${category}`);
+			notice.noticeEl.addClass('archwiki-error-notice');
+		} else {
+			const notice = new Notice(`Updated category ${category}`);
+			notice.noticeEl.addClass('archwiki-success-notice');
+		}
+	});
 }
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+function openReadPageFuzzyModal(
+	app: App,
+	dir: string,
+	vault: Vault,
+	workspace: Workspace
+) {
+	exec('archwiki-rs list-pages -f', { encoding: 'utf8' }, (err, stdout, _stderr) => {
+		if (err) {
+			new Notice('Failed to get ArchWiki pages');
+			return;
+		}
+
+		const pages = stdout.trim().split('\n');
+		new ArchWikiFuzzySuggestionModal(
+			app,
+			pages,
+			async (item) => {
+				const page = item.replace('/', '∕').replace(/^\./, '_.');
+				exec(
+					`archwiki-rs read-page -f markdown "${page}"`,
+					{ encoding: 'utf8' },
+					async (err, stdout, stderr) => {
+						if (err) {
+							const notice = new Notice(`Page ${page} not found`);
+							notice.noticeEl.addClass('archwiki-error-notice');
+
+							const similar = stderr
+								.trim()
+								.split('\n')
+								.filter((s) => s.trim() !== ' ');
+
+							if (similar.length > 0) {
+								new ArchWikiFuzzySuggestionModal(
+									app,
+									similar,
+									async (item) => {
+										const page = item
+											.replace('/', '∕')
+											.replace(/^\./, '_.');
+
+										try {
+											const content = execSync(
+												`archwiki-rs read-page -f markdown "${page}"`,
+												{ encoding: 'utf8' }
+											);
+
+											createIfNotExistsAndOpenInTab(
+												page,
+												dir,
+												content,
+												vault,
+												workspace
+											);
+										} catch (_e) {
+											const notice = new Notice(
+												`Failed to read page ${page}`
+											);
+											notice.noticeEl.addClass(
+												'archwiki-error-notice'
+											);
+										}
+									},
+									'Enter similar page name...'
+								).open();
+							}
+						} else {
+							const content = stdout;
+							createIfNotExistsAndOpenInTab(
+								page,
+								dir,
+								content,
+								vault,
+								workspace
+							);
+						}
+					}
+				);
+			},
+			'Enter page name...'
+		).open();
+	});
+}
+
+function openUpdateCategoryFuzzyModal(app: App) {
+	exec('archwiki-rs list-categories', { encoding: 'utf8' }, (err, stdout, _stderr) => {
+		if (err) {
+			new Notice('Failed to get categories');
+			return;
+		}
+
+		const categories = stdout.trim().split('\n');
+		new ArchWikiFuzzySuggestionModal(
+			app,
+			categories,
+			(item) => updateCategory(item),
+			'Enter category name...'
+		).open();
+	});
+}
+
+function isCliInstalled(): boolean {
+	try {
+		execSync('archwiki-rs -h');
+		return true;
+	} catch (_e) {
+		return false;
+	}
+}
+
+function pageFileExists(): boolean {
+	try {
+		const filePath = path.join(
+			execSync('archwiki-rs info -d -o', { encoding: 'utf8' }).trim(),
+			'pages.yml'
+		);
+		return existsSync(filePath);
+	} catch (_e) {
+		new Notice(_e);
+		return false;
+	}
+}
+
+function createPageFile() {
+	exec('archwiki-rs update-all', {}, (err) => {
+		if (err) {
+			const notice = new Notice(
+				"Failed to create page file. Try running the command 'archwiki-rs update-all' manually."
+			);
+			notice.noticeEl.addClass('archwiki-error-notice');
+		} else {
+			const notice = new Notice('Finished fetching pages from the ArchWiki');
+			notice.noticeEl.addClass('archwiki-success-notice');
+		}
+	});
+}
+
+export default class ArchWikiPlugin extends Plugin {
+	settings: ArchWikiSettings;
 
 	async onload() {
 		await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
+		if (!isCliInstalled()) {
+			const notice = new Notice(
+				`You have to install 'archwiki-rs' to use the plugin '${this.manifest.name}'`
+			);
+			notice.noticeEl.addClass('archwiki-warn-notice');
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
+			return;
+		}
 
-		// This adds a simple command that can be triggered anywhere
+		if (!pageFileExists()) {
+			const notice = new Notice(
+				'Fetching list of pages from the ArchWiki. This will take some time...'
+			);
+			notice.noticeEl.addClass('archwiki-info-notice');
+
+			createPageFile();
+		}
+
+		const root = this.app.vault.getRoot().path;
+		const dir = path.join(root, this.settings.pageDirectory);
+
+		const exists = await this.app.vault.adapter.exists(dir);
+		if (!exists) {
+			await this.app.vault.adapter.mkdir(dir);
+		}
+
+		this.addSettingTab(new ArchWikiSettingTab(this.app, this));
+
 		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
+			id: READ_PAGE_COMMAND,
+			hotkeys: [{ modifiers: ['Shift', 'Ctrl'], key: 'r' }],
+			name: 'Read ArchWiki page',
 			callback: () => {
-				new SampleModal(this.app).open();
+				openReadPageFuzzyModal(
+					this.app,
+					this.settings.pageDirectory,
+					this.app.vault,
+					this.app.workspace
+				);
 			}
 		});
-		// This adds an editor command that can perform some operation on the current editor instance
+
 		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
+			id: UPDATE_CATEGORY_COMMAND,
+			hotkeys: [{ modifiers: ['Shift', 'Ctrl'], key: 'u' }],
+			name: 'Update pages in ArchWiki category',
+			callback: () => openUpdateCategoryFuzzyModal(this.app)
 		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-			}
-		});
-
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
 	}
 
-	onunload() {
-
-	}
+	onunload() {}
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -91,44 +260,85 @@ export default class MyPlugin extends Plugin {
 	}
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
+class ArchWikiFuzzySuggestionModal extends FuzzySuggestModal<string> {
+	#items: string[];
+	#noSuggestion: boolean;
+	#onConfirm: (item: string) => void;
+
+	constructor(
+		app: App,
+		items: string[],
+		onConfirm: (item: string) => void,
+		placeholder: string
+	) {
 		super(app);
+
+		this.#items = items;
+		this.#onConfirm = onConfirm;
+
+		this.setPlaceholder(placeholder);
+		this.limit = 5000;
+
+		this.scope.register(['Ctrl'], 'p', () => {
+			this.inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp' }));
+		});
+
+		this.scope.register(['Ctrl'], 'n', () => {
+			this.inputEl.dispatchEvent(
+				new KeyboardEvent('keydown', { key: 'ArrowDown' })
+			);
+		});
+
+		this.setInstructions([
+			{ command: '↑↓', purpose: 'to navigate' },
+			{ command: 'ctrl p/n', purpose: 'to navigate' },
+			{ command: '↵', purpose: 'to use' },
+			{ command: 'esc', purpose: 'to dismiss' }
+		]);
 	}
 
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
+	getItems(): string[] {
+		return this.#items;
 	}
 
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
+	getItemText(item: string): string {
+		this.#noSuggestion = false;
+		return item;
+	}
+
+	onNoSuggestion(): void {
+		this.#noSuggestion = true;
+	}
+
+	onChooseItem(item: string, _evt: MouseEvent | KeyboardEvent): void {
+		const text = this.#noSuggestion ? this.inputEl.value : item;
+		this.#onConfirm(text);
 	}
 }
 
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
+class ArchWikiSettingTab extends PluginSettingTab {
+	plugin: ArchWikiPlugin;
 
-	constructor(app: App, plugin: MyPlugin) {
+	constructor(app: App, plugin: ArchWikiPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
 
 	display(): void {
-		const {containerEl} = this;
+		const { containerEl } = this;
 
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
-					await this.plugin.saveSettings();
-				}));
+			.setName('ArchWiki page directory')
+			.setDesc('Where should downloaded ArchWiki pages be stored')
+			.addText((text) =>
+				text
+					.setValue(this.plugin.settings.pageDirectory)
+					.onChange(async (value) => {
+						this.plugin.settings.pageDirectory = value;
+						await this.plugin.saveSettings();
+					})
+			);
 	}
 }

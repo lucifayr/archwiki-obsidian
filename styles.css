@@ -6,3 +6,19 @@ available in the app when your plugin is enabled.
 If your plugin does not need CSS, delete this file.
 
 */
+
+.archwiki-success-notice { 
+	background: #10c02f;
+}
+
+.archwiki-error-notice { 
+	background: #e10342;
+}
+
+.archwiki-info-notice {
+	background: #213fdf;
+}
+
+.archwiki-warn-notice {
+	background: #e97322;
+}

@@ -3,7 +3,7 @@
 	"name": "ArchWiki",
 	"version": "0.1.0",
 	"minAppVersion": "0.15.0",
-	"description": "TODO",
+	"description": "Read any ArchWiki page directly in Obsidian",
 	"author": "Lucy Gschwantner",
 	"authorUrl": "https://github.com/Jackboxx",
 	"fundingUrl": "https://bmc.link/Jackboxx",

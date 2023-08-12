@@ -1,18 +1,24 @@
 import { exec, execSync } from 'child_process';
-import { existsSync } from 'fs';
 import {
 	App,
 	FuzzySuggestModal,
-	normalizePath,
 	Notice,
 	Plugin,
 	PluginSettingTab,
 	Setting,
-	TFile,
 	Vault,
 	Workspace
 } from 'obsidian';
 import * as path from 'path';
+import {
+	createIfNotExists as createFileIfNotExists,
+	createPageFile,
+	isCliInstalled,
+	newlineStringToModalList,
+	openFileInTab,
+	pageFileExists,
+	pageToSaveFilename
+} from './utils';
 
 type ArchWikiSettings = {
 	pageDirectory: string;
@@ -24,26 +30,6 @@ const UPDATE_CATEGORY_COMMAND = 'update-category';
 const DEFAULT_SETTINGS: ArchWikiSettings = {
 	pageDirectory: 'ArchWiki'
 };
-
-async function createIfNotExistsAndOpenInTab(
-	filename: string,
-	dir: string,
-	content: string,
-	vault: Vault,
-	workspace: Workspace
-) {
-	const filePath = normalizePath(path.join(dir, `${filename}.md`));
-
-	let file: TFile;
-	if (await vault.adapter.exists(filePath)) {
-		file = vault.getAbstractFileByPath(filePath) as TFile;
-	} else {
-		file = await vault.create(filePath, content);
-	}
-
-	const leaf = workspace.getLeaf('tab');
-	await leaf.openFile(file);
-}
 
 function updateCategory(category: string) {
 	exec(`archwiki-rs update-category ${category}`, { encoding: 'utf8' }, (err) => {
@@ -69,33 +55,25 @@ function openReadPageFuzzyModal(
 			return;
 		}
 
-		const pages = stdout.trim().split('\n');
 		new ArchWikiFuzzySuggestionModal(
 			app,
-			pages,
+			newlineStringToModalList(stdout),
 			async (item) => {
-				const page = item.replace('/', '∕').replace(/^\./, '_.');
 				exec(
-					`archwiki-rs read-page -f markdown "${page}"`,
+					`archwiki-rs read-page -f markdown "${item}"`,
 					{ encoding: 'utf8' },
 					async (err, stdout, stderr) => {
 						if (err) {
-							const notice = new Notice(`Page ${page} not found`);
+							const notice = new Notice(`Page ${item} not found`);
 							notice.noticeEl.addClass('archwiki-error-notice');
 
-							const similar = stderr
-								.trim()
-								.split('\n')
-								.filter((s) => s.trim() !== ' ');
-
+							const similar = newlineStringToModalList(stderr);
 							if (similar.length > 0) {
 								new ArchWikiFuzzySuggestionModal(
 									app,
 									similar,
 									async (item) => {
-										const page = item
-											.replace('/', '∕')
-											.replace(/^\./, '_.');
+										const page = pageToSaveFilename(item);
 
 										try {
 											const content = execSync(
@@ -103,13 +81,14 @@ function openReadPageFuzzyModal(
 												{ encoding: 'utf8' }
 											);
 
-											createIfNotExistsAndOpenInTab(
+											const file = await createFileIfNotExists(
 												page,
 												dir,
 												content,
-												vault,
-												workspace
+												vault
 											);
+
+											openFileInTab(file, workspace);
 										} catch (_e) {
 											const notice = new Notice(
 												`Failed to read page ${page}`
@@ -121,16 +100,21 @@ function openReadPageFuzzyModal(
 									},
 									'Enter similar page name...'
 								).open();
+							} else {
+								const notice = new Notice('No similar pages found');
+								notice.noticeEl.addClass('archwiki-error-notice');
 							}
 						} else {
 							const content = stdout;
-							createIfNotExistsAndOpenInTab(
+							const page = pageToSaveFilename(item);
+							const file = await createFileIfNotExists(
 								page,
 								dir,
 								content,
-								vault,
-								workspace
+								vault
 							);
+
+							openFileInTab(file, workspace);
 						}
 					}
 				);
@@ -154,42 +138,6 @@ function openUpdateCategoryFuzzyModal(app: App) {
 			(item) => updateCategory(item),
 			'Enter category name...'
 		).open();
-	});
-}
-
-function isCliInstalled(): boolean {
-	try {
-		execSync('archwiki-rs -h');
-		return true;
-	} catch (_e) {
-		return false;
-	}
-}
-
-function pageFileExists(): boolean {
-	try {
-		const filePath = path.join(
-			execSync('archwiki-rs info -d -o', { encoding: 'utf8' }).trim(),
-			'pages.yml'
-		);
-		return existsSync(filePath);
-	} catch (_e) {
-		new Notice(_e);
-		return false;
-	}
-}
-
-function createPageFile() {
-	exec('archwiki-rs update-all', {}, (err) => {
-		if (err) {
-			const notice = new Notice(
-				"Failed to create page file. Try running the command 'archwiki-rs update-all' manually."
-			);
-			notice.noticeEl.addClass('archwiki-error-notice');
-		} else {
-			const notice = new Notice('Finished fetching pages from the ArchWiki');
-			notice.noticeEl.addClass('archwiki-success-notice');
-		}
 	});
 }
 
@@ -292,6 +240,7 @@ class ArchWikiFuzzySuggestionModal extends FuzzySuggestModal<string> {
 		this.setInstructions([
 			{ command: '↑↓', purpose: 'to navigate' },
 			{ command: 'ctrl p/n', purpose: 'to navigate' },
+			{ command: 'ctrl k/j', purpose: 'to navigate' },
 			{ command: '↵', purpose: 'to use' },
 			{ command: 'esc', purpose: 'to dismiss' }
 		]);

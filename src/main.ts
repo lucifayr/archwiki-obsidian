@@ -161,7 +161,7 @@ export default class ArchWikiPlugin extends Plugin {
 
 		const exists = await this.app.vault.adapter.exists(dir);
 		if (!exists) {
-			await this.app.vault.adapter.mkdir(dir);
+			await this.app.vault.createFolder(dir);
 		}
 
 		this.addSettingTab(new ArchWikiSettingTab(this.app, this));

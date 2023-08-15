@@ -1,15 +1,8 @@
 import { exec, execSync } from 'child_process';
-import {
-	App,
-	FuzzySuggestModal,
-	Notice,
-	Plugin,
-	PluginSettingTab,
-	Setting,
-	Vault,
-	Workspace
-} from 'obsidian';
+import { App, Notice, Plugin, Vault, Workspace } from 'obsidian';
 import * as path from 'path';
+import { ArchWikiSettingTab } from './settings';
+import { ArchWikiFuzzySuggestionModal } from './suggestionModal';
 import {
 	createIfNotExists as createFileIfNotExists,
 	createPageFile,
@@ -125,20 +118,19 @@ function openReadPageFuzzyModal(
 }
 
 function openUpdateCategoryFuzzyModal(app: App) {
-	exec('archwiki-rs list-categories', { encoding: 'utf8' }, (err, stdout, _stderr) => {
-		if (err) {
-			new Notice('Failed to get categories');
-			return;
-		}
+	try {
+		const stdout = execSync('archwiki-rs list-categories', { encoding: 'utf8' });
+		const categories = newlineStringToModalList(stdout);
 
-		const categories = stdout.trim().split('\n');
 		new ArchWikiFuzzySuggestionModal(
 			app,
 			categories,
 			(item) => updateCategory(item),
 			'Enter category name...'
 		).open();
-	});
+	} catch (_e) {
+		new Notice('Failed to get categories');
+	}
 }
 
 export default class ArchWikiPlugin extends Plugin {
@@ -205,89 +197,5 @@ export default class ArchWikiPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-	}
-}
-
-class ArchWikiFuzzySuggestionModal extends FuzzySuggestModal<string> {
-	#items: string[];
-	#noSuggestion: boolean;
-	#onConfirm: (item: string) => void;
-
-	constructor(
-		app: App,
-		items: string[],
-		onConfirm: (item: string) => void,
-		placeholder: string
-	) {
-		super(app);
-
-		this.#items = items;
-		this.#onConfirm = onConfirm;
-
-		this.setPlaceholder(placeholder);
-		this.limit = 5000;
-
-		this.scope.register(['Ctrl'], 'p', () => {
-			this.inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp' }));
-		});
-
-		this.scope.register(['Ctrl'], 'n', () => {
-			this.inputEl.dispatchEvent(
-				new KeyboardEvent('keydown', { key: 'ArrowDown' })
-			);
-		});
-
-		this.setInstructions([
-			{ command: '↑↓', purpose: 'to navigate' },
-			{ command: 'ctrl p/n', purpose: 'to navigate' },
-			{ command: 'ctrl k/j', purpose: 'to navigate' },
-			{ command: '↵', purpose: 'to use' },
-			{ command: 'esc', purpose: 'to dismiss' }
-		]);
-	}
-
-	getItems(): string[] {
-		return this.#items;
-	}
-
-	getItemText(item: string): string {
-		this.#noSuggestion = false;
-		return item;
-	}
-
-	onNoSuggestion(): void {
-		this.#noSuggestion = true;
-	}
-
-	onChooseItem(item: string, _evt: MouseEvent | KeyboardEvent): void {
-		const text = this.#noSuggestion ? this.inputEl.value : item;
-		this.#onConfirm(text);
-	}
-}
-
-class ArchWikiSettingTab extends PluginSettingTab {
-	plugin: ArchWikiPlugin;
-
-	constructor(app: App, plugin: ArchWikiPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
-
-	display(): void {
-		const { containerEl } = this;
-
-		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName('ArchWiki page directory')
-			.setDesc('Where should downloaded ArchWiki pages be stored')
-			.addText((text) =>
-				text
-					.setValue(this.plugin.settings.pageDirectory)
-					.onChange(async (value) => {
-						this.plugin.settings.pageDirectory = value;
-						await this.plugin.saveSettings();
-					})
-			);
 	}
 }

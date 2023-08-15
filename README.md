@@ -1,4 +1,4 @@
-# archwiki-obsidian
+# ArchWiki Reader
 
 An Obsidian plugin to download and read ArchWiki pages.
 

@@ -11,7 +11,7 @@ export function isCliInstalled(): boolean {
 		execSync('archwiki-rs -h');
 
 		return true;
-	} catch (_e) {
+	} catch {
 		return false;
 	}
 }
@@ -22,7 +22,7 @@ export function pageFileExists(): boolean {
 		const filePath = path.join(info.trim(), 'pages.yml');
 
 		return existsSync(filePath);
-	} catch (_e) {
+	} catch {
 		return false;
 	}
 }

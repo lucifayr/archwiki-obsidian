@@ -1,6 +1,7 @@
 import { exec, execSync } from 'child_process';
 import { App, Notice, Plugin, Vault, Workspace } from 'obsidian';
 import * as path from 'path';
+
 import { ArchWikiSettingTab } from './settings';
 import { ArchWikiFuzzySuggestionModal } from './suggestionModal';
 import {
@@ -24,97 +25,83 @@ const DEFAULT_SETTINGS: ArchWikiSettings = {
 	pageDirectory: 'ArchWiki'
 };
 
-function updateCategory(category: string) {
-	exec(`archwiki-rs update-category ${category}`, { encoding: 'utf8' }, (err) => {
-		if (err) {
-			const notice = new Notice(`Failed to update category ${category}`);
-			notice.noticeEl.addClass('archwiki-error-notice');
-		} else {
-			const notice = new Notice(`Updated category ${category}`);
-			notice.noticeEl.addClass('archwiki-success-notice');
-		}
-	});
-}
-
 function openReadPageFuzzyModal(
 	app: App,
 	dir: string,
 	vault: Vault,
 	workspace: Workspace
 ) {
-	exec('archwiki-rs list-pages -f', { encoding: 'utf8' }, (err, stdout, _stderr) => {
-		if (err) {
-			new Notice('Failed to get ArchWiki pages');
-			return;
-		}
+	let pages: string[] = [];
+	try {
+		const stdout = execSync('archwiki-rs list-pages -f', { encoding: 'utf8' });
+		pages = newlineStringToModalList(stdout);
+	} catch {
+		new Notice('Failed to get ArchWiki pages');
+		return;
+	}
 
-		new ArchWikiFuzzySuggestionModal(
-			app,
-			newlineStringToModalList(stdout),
-			async (item) => {
-				exec(
-					`archwiki-rs read-page -f markdown "${item}"`,
-					{ encoding: 'utf8' },
-					async (err, stdout, stderr) => {
-						if (err) {
-							const notice = new Notice(`Page ${item} not found`);
-							notice.noticeEl.addClass('archwiki-error-notice');
+	new ArchWikiFuzzySuggestionModal(
+		app,
+		pages,
+		async (item) => {
+			exec(
+				`archwiki-rs read-page -f markdown "${item}"`,
+				{ encoding: 'utf8' },
+				async (err, stdout, stderr) => {
+					if (!err) {
+						const page = pageToSaveFilename(item);
+						const file = await createFileIfNotExists(
+							page,
+							dir,
+							stdout,
+							vault
+						);
 
-							const similar = newlineStringToModalList(stderr);
-							if (similar.length > 0) {
-								new ArchWikiFuzzySuggestionModal(
-									app,
-									similar,
-									async (item) => {
-										const page = pageToSaveFilename(item);
+						openFileInTab(file, workspace);
 
-										try {
-											const content = execSync(
-												`archwiki-rs read-page -f markdown "${page}"`,
-												{ encoding: 'utf8' }
-											);
+						return;
+					}
 
-											const file = await createFileIfNotExists(
-												page,
-												dir,
-												content,
-												vault
-											);
+					const notice = new Notice(`Page ${item} not found`);
+					notice.noticeEl.addClass('archwiki-error-notice');
 
-											openFileInTab(file, workspace);
-										} catch (_e) {
-											const notice = new Notice(
-												`Failed to read page ${page}`
-											);
-											notice.noticeEl.addClass(
-												'archwiki-error-notice'
-											);
-										}
-									},
-									'Enter similar page name...'
-								).open();
-							} else {
-								const notice = new Notice('No similar pages found');
+					const similarPages = newlineStringToModalList(stderr);
+					if (similarPages.length <= 0) {
+						return;
+					}
+
+					new ArchWikiFuzzySuggestionModal(
+						app,
+						similarPages,
+						async (item) => {
+							const page = pageToSaveFilename(item);
+
+							try {
+								const content = execSync(
+									`archwiki-rs read-page -f markdown "${page}"`,
+									{ encoding: 'utf8' }
+								);
+
+								const file = await createFileIfNotExists(
+									page,
+									dir,
+									content,
+									vault
+								);
+
+								openFileInTab(file, workspace);
+							} catch {
+								const notice = new Notice(`Failed to read page ${page}`);
 								notice.noticeEl.addClass('archwiki-error-notice');
 							}
-						} else {
-							const content = stdout;
-							const page = pageToSaveFilename(item);
-							const file = await createFileIfNotExists(
-								page,
-								dir,
-								content,
-								vault
-							);
-
-							openFileInTab(file, workspace);
-						}
-					}
-				);
-			},
-			'Enter page name...'
-		).open();
-	});
+						},
+						'Enter similar page name...'
+					).open();
+				}
+			);
+		},
+		'Enter page name...'
+	).open();
 }
 
 function openUpdateCategoryFuzzyModal(app: App) {
@@ -128,8 +115,20 @@ function openUpdateCategoryFuzzyModal(app: App) {
 			(item) => updateCategory(item),
 			'Enter category name...'
 		).open();
-	} catch (_e) {
+	} catch {
 		new Notice('Failed to get categories');
+	}
+}
+
+function updateCategory(category: string) {
+	try {
+		execSync(`archwiki-rs update-category "${category}"`);
+
+		const notice = new Notice(`Updated category ${category}`);
+		notice.noticeEl.addClass('archwiki-success-notice');
+	} catch {
+		const notice = new Notice(`Failed to update category ${category}`);
+		notice.noticeEl.addClass('archwiki-error-notice');
 	}
 }
 

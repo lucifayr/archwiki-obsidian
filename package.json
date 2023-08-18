@@ -1,6 +1,6 @@
 {
-	"name": "archwiki-obsidian",
-	"version": "1.1.0",
+	"name": "archwiki-reader",
+	"version": "1.1.2",
 	"description": "Read any ArchWiki page directly in Obsidian",
 	"main": "main.js",
 	"scripts": {

@@ -168,7 +168,6 @@ export default class ArchWikiPlugin extends Plugin {
 
 		this.addCommand({
 			id: READ_PAGE_COMMAND,
-			hotkeys: [{ modifiers: ['Shift', 'Ctrl'], key: 'r' }],
 			name: 'Read ArchWiki page',
 			callback: () => {
 				openReadPageFuzzyModal(
@@ -182,7 +181,6 @@ export default class ArchWikiPlugin extends Plugin {
 
 		this.addCommand({
 			id: UPDATE_CATEGORY_COMMAND,
-			hotkeys: [{ modifiers: ['Shift', 'Ctrl'], key: 'u' }],
 			name: 'Update pages in ArchWiki category',
 			callback: () => openUpdateCategoryFuzzyModal(this.app)
 		});

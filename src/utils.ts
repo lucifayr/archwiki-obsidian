@@ -1,4 +1,4 @@
-import { execSync } from 'child_process';
+import { exec, execSync } from 'child_process';
 import { existsSync } from 'fs';
 import { normalizePath, Notice, TFile, Vault, Workspace } from 'obsidian';
 import * as path from 'path';
@@ -28,17 +28,19 @@ export function pageFileExists(): boolean {
 }
 
 export function createPageFile() {
-	try {
-		execSync('archwiki-rs update-all');
+	exec('archwiki-rs update-all', (err) => {
+		if (err) {
+			const notice = new Notice(
+				"Failed to create page file. Try running the command 'archwiki-rs update-all' manually."
+			);
+			notice.noticeEl.addClass('archwiki-error-notice');
+
+			return;
+		}
 
 		const notice = new Notice('Finished fetching pages from the ArchWiki');
 		notice.noticeEl.addClass('archwiki-success-notice');
-	} catch (err) {
-		const notice = new Notice(
-			"Failed to create page file. Try running the command 'archwiki-rs update-all' manually."
-		);
-		notice.noticeEl.addClass('archwiki-error-notice');
-	}
+	});
 }
 
 export async function createIfNotExists(

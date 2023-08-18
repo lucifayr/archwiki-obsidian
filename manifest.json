@@ -1,11 +1,11 @@
 {
-  "id": "archwiki-reader",
-  "name": "ArchWiki Reader",
-  "version": "1.1.1",
-  "minAppVersion": "0.15.0",
-  "description": "Read any ArchWiki page directly in Obsidian",
-  "author": "Lucy Gschwantner",
-  "authorUrl": "https://github.com/Jackboxx",
-  "fundingUrl": "https://bmc.link/Jackboxx",
-  "isDesktopOnly": true
+	"id": "archwiki-reader",
+	"name": "ArchWiki Reader",
+	"version": "1.1.2",
+	"minAppVersion": "0.15.0",
+	"description": "Read any ArchWiki page directly in Obsidian",
+	"author": "Lucy Gschwantner",
+	"authorUrl": "https://github.com/Jackboxx",
+	"fundingUrl": "https://bmc.link/Jackboxx",
+	"isDesktopOnly": true
 }

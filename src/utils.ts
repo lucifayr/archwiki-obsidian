@@ -28,10 +28,10 @@ export function pageFileExists(): boolean {
 }
 
 export function createPageFile() {
-	exec('archwiki-rs update-all', (err) => {
+	exec('archwiki-rs sync-wiki', (err) => {
 		if (err) {
 			const notice = new Notice(
-				"Failed to create page file. Try running the command 'archwiki-rs update-all' manually."
+				"Failed to create page file. Try running the command 'archwiki-rs sync-wiki' manually."
 			);
 			notice.noticeEl.addClass('archwiki-error-notice');
 

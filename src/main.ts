@@ -19,7 +19,6 @@ type ArchWikiSettings = {
 };
 
 const READ_PAGE_COMMAND = 'read-page';
-const UPDATE_CATEGORY_COMMAND = 'update-category';
 
 const DEFAULT_SETTINGS: ArchWikiSettings = {
 	pageDirectory: 'ArchWiki'
@@ -104,34 +103,6 @@ function openReadPageFuzzyModal(
 	).open();
 }
 
-function openUpdateCategoryFuzzyModal(app: App) {
-	try {
-		const stdout = execSync('archwiki-rs list-categories', { encoding: 'utf8' });
-		const categories = newlineStringToModalList(stdout);
-
-		new ArchWikiFuzzySuggestionModal(
-			app,
-			categories,
-			(item) => updateCategory(item),
-			'Enter category name...'
-		).open();
-	} catch {
-		new Notice('Failed to get categories');
-	}
-}
-
-function updateCategory(category: string) {
-	try {
-		execSync(`archwiki-rs update-category "${category}"`);
-
-		const notice = new Notice(`Updated category ${category}`);
-		notice.noticeEl.addClass('archwiki-success-notice');
-	} catch {
-		const notice = new Notice(`Failed to update category ${category}`);
-		notice.noticeEl.addClass('archwiki-error-notice');
-	}
-}
-
 export default class ArchWikiPlugin extends Plugin {
 	settings: ArchWikiSettings;
 
@@ -177,12 +148,6 @@ export default class ArchWikiPlugin extends Plugin {
 					this.app.workspace
 				);
 			}
-		});
-
-		this.addCommand({
-			id: UPDATE_CATEGORY_COMMAND,
-			name: 'Update pages in ArchWiki category',
-			callback: () => openUpdateCategoryFuzzyModal(this.app)
 		});
 	}
 

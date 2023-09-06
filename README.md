@@ -19,8 +19,3 @@ a new tab.
 
 After installing the plugin a list of all pages grouped into categories will be fetched from
 the ArchWiki. This list of pages will be suggested to you when searching for a page.
-
-#### Updating Suggestions
-
-To update the list of pages in a category you can run the 'Update pages in ArchWiki
-category' command. This can be useful in case new pages are added to the ArchWiki.
